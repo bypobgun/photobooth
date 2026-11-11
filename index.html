@@ -67,6 +67,12 @@
   #dot.wait { background: var(--warn); }
   #dot.bad { background: var(--booth); }
 
+  /* ปุ่มสลับกล้องหน้า/หลัง */
+  #flip { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 10px); right: 12px; width: 56px; height: 56px; border-radius: 50%; border: 0; background: rgba(20,33,61,.7); color: var(--paper); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  #flip:active { transform: scale(.92); }
+  #flip:disabled { opacity: .35; }
+  #flip svg { width: 28px; height: 28px; }
+
   /* error */
   #err { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; padding: 32px; text-align: center; background: var(--ink); font-size: 22px; line-height: 1.6; }
   #err.on { display: flex; }
@@ -81,6 +87,9 @@
 <video id="cam" autoplay playsinline muted></video>
 
 <div id="chip"><span id="dot"></span><span id="chiptext">กำลังเริ่ม...</span></div>
+<button id="flip" aria-label="สลับกล้องหน้า/หลัง">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7h-3.5l-1.5-2h-6L7.5 7H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1z"/><path d="M9 13.5a3.2 3.2 0 0 1 5.6-2.1M15 13.5a3.2 3.2 0 0 1-5.6 2.1"/><path d="M14.8 9.8v1.8h-1.8M9.2 17.2v-1.8h1.8"/></svg>
+</button>
 <div id="hint">กดปุ่มเพื่อถ่ายรูป</div>
 <button id="shutter" aria-label="ถ่ายรูป"></button>
 
@@ -111,12 +120,14 @@ const RESULT_MAX_WAIT_MS = 12000; // รอเลขนานสุดกี่ 
 const $ = id => document.getElementById(id);
 const cam = $('cam'), canvas = $('canvas'), shutter = $('shutter');
 let facing = 'user';
+try { if (localStorage.getItem('boothFacing') === 'environment') facing = 'environment'; } catch (e) {}
 let stream = null;
 let busy = false;           // ระหว่างนับ/ถ่าย/โชว์ผล
 let currentJobId = null;    // งานที่หน้าผลลัพธ์กำลังรอเลข
 let lastQueue = null;
 const jobs = [];
 let pumping = false;
+let lastErr = '';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -130,9 +141,11 @@ async function startCamera() {
     });
     cam.srcObject = stream;
     cam.classList.toggle('rear', facing === 'environment');
+    try { localStorage.setItem('boothFacing', facing); } catch (e) {}
     $('err').classList.remove('on');
     updateChip();
   } catch (e) {
+    if (facing === 'environment') { facing = 'user'; return startCamera(); } // กล้องหลังเปิดไม่ได้ -> กลับกล้องหน้า
     showError('เปิดกล้องไม่ได้<br>กรุณากด "อนุญาต" การใช้กล้อง แล้วรีเฟรชหน้านี้');
   }
 }
@@ -152,6 +165,13 @@ $('chip').addEventListener('pointerdown', () => {
 });
 ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev =>
   $('chip').addEventListener(ev, () => clearTimeout(holdTimer)));
+
+// ปุ่มสลับกล้องหน้า/หลัง
+$('flip').addEventListener('click', () => {
+  if (busy) return;
+  facing = facing === 'user' ? 'environment' : 'user';
+  startCamera();
+});
 
 // ====== ถ่ายรูป ======
 shutter.addEventListener('click', async () => {
@@ -234,9 +254,11 @@ async function pump() {
       if (!data.ok) throw new Error(data.error || 'upload failed');
       job.queue = data.queue;
       lastQueue = data.queue;
+      lastErr = '';
       jobs.shift();
       onQueueIssued(job);
     } catch (e) {
+      lastErr = String((e && e.message) || e);
       job.tries++;
       await sleep(Math.min(1500 * job.tries, 10000));
     }
@@ -251,7 +273,11 @@ function updateChip() {
   const dot = $('dot'), text = $('chiptext');
   dot.className = '';
   if (!navigator.onLine) { dot.classList.add('bad'); text.textContent = 'ไม่มีอินเทอร์เน็ต' + (jobs.length ? ' · รอส่ง ' + jobs.length : ''); return; }
-  if (jobs.length) { dot.classList.add('wait'); text.textContent = 'กำลังส่ง ' + jobs.length + ' รูป'; return; }
+  if (jobs.length) {
+    dot.classList.add(lastErr ? 'bad' : 'wait');
+    text.textContent = 'กำลังส่ง ' + jobs.length + ' รูป' + (lastErr ? ' · ผิดพลาด: ' + lastErr.slice(0, 60) : '');
+    return;
+  }
   text.textContent = lastQueue ? 'ส่งแล้ว · ล่าสุด #' + lastQueue : 'พร้อมใช้งาน';
 }
 window.addEventListener('online', () => { updateChip(); pump(); });
