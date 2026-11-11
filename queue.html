@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>คิววาดรูป</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14213D">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@500;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #14213D; --card: #1E2E52; --line: #2E4170;
+    --paper: #FFFFFF; --muted: #A9B4CF;
+    --booth: #E63946; --ok: #3DDC97; --warn: #FFB703; --blue: #4CC9F0; --gray: #8893AB;
+    --font: "Noto Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { background: var(--ink); color: var(--paper); font-family: var(--font); min-height: 100vh; }
+  button { font-family: inherit; cursor: pointer; }
+
+  header { position: sticky; top: 0; z-index: 5; background: var(--ink); border-bottom: 1px solid var(--line); padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px 12px; }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  h1 { font-size: 22px; font-weight: 800; }
+  #sync { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  #sdot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); }
+  #sdot.bad { background: var(--booth); }
+  #search { width: 120px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--paper); font: 500 16px var(--font); }
+  #search::placeholder { color: var(--muted); }
+  #tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
+  .tab { flex: none; padding: 9px 14px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); font: 500 16px var(--font); }
+  .tab[aria-selected="true"] { background: var(--paper); color: var(--ink); border-color: var(--paper); font-weight: 800; }
+  .tab b { font-weight: 800; margin-left: 6px; }
+
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; padding: 16px; }
+  .card { background: var(--card); border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; }
+  .card[hidden] { display: none; }
+  .photo { height: 280px; background: #0F1A31; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 15px; cursor: zoom-in; }
+  .photo img { width: 100%; height: 100%; object-fit: contain; }
+  .meta { display: flex; align-items: baseline; justify-content: space-between; padding: 12px 14px 4px; }
+  .num { font-size: 44px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+  .time { color: var(--muted); font-size: 14px; }
+  .pill { margin: 6px 14px 0; align-self: flex-start; padding: 3px 10px; border-radius: 999px; font-size: 14px; font-weight: 800; color: var(--ink); }
+  .s-wait { background: var(--warn); } .s-draw { background: var(--blue); } .s-done { background: var(--ok); } .s-pick { background: var(--gray); }
+  .actions { display: flex; gap: 8px; padding: 10px 14px 14px; }
+  .next { flex: 1; padding: 14px; border: 0; border-radius: 8px; font: 800 18px var(--font); color: var(--ink); }
+  .next.to-draw { background: var(--blue); } .next.to-done { background: var(--ok); } .next.to-pick { background: var(--warn); }
+  .back { padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font: 500 15px var(--font); }
+  .next:active, .back:active { transform: scale(.97); }
+
+  #empty { display: none; padding: 60px 16px; text-align: center; color: var(--muted); font-size: 18px; }
+
+  /* ดูรูปเต็ม */
+  #viewer { position: fixed; inset: 0; z-index: 20; display: none; background: rgba(10,16,32,.96); align-items: center; justify-content: center; touch-action: pinch-zoom; }
+  #viewer.on { display: flex; }
+  #viewer img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  #vnum { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 14px); left: 16px; font-size: 40px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  #vclose { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 12px); right: 16px; padding: 10px 16px; border: 1px solid var(--line); border-radius: 8px; background: var(--ink); color: var(--paper); font: 500 16px var(--font); }
+
+  /* PIN */
+  #pinbox { position: fixed; inset: 0; z-index: 30; display: none; align-items: center; justify-content: center; padding: 24px; background: var(--ink); }
+  #pinbox.on { display: flex; }
+  #pinform { width: min(100%, 320px); display: flex; flex-direction: column; gap: 14px; text-align: center; }
+  #pinform p { font-size: 20px; font-weight: 800; }
+  #pin { padding: 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--paper); font: 800 28px var(--font); text-align: center; letter-spacing: .3em; }
+  #pinok { padding: 14px; border: 0; border-radius: 8px; background: var(--paper); color: var(--ink); font: 800 18px var(--font); }
+  #pinerr { color: var(--booth); min-height: 1.4em; font-size: 15px; }
+
+  #toast { position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 20px); transform: translateX(-50%); z-index: 40; padding: 12px 18px; border-radius: 8px; background: var(--booth); font-weight: 800; display: none; max-width: 90vw; text-align: center; }
+  #toast.on { display: block; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="top">
+    <h1>คิววาดรูป</h1>
+    <input id="search" type="search" inputmode="numeric" placeholder="ค้นหาเลข" aria-label="ค้นหาเลขคิว">
+    <div id="sync"><span id="sdot"></span><span id="stext">กำลังโหลด</span></div>
+  </div>
+  <div id="tabs" role="tablist"></div>
+</header>
+
+<main>
+  <div id="grid"></div>
+  <div id="empty">ยังไม่มีคิวในหมวดนี้</div>
+</main>
+
+<div id="viewer"><div id="vnum"></div><img id="vimg" alt="รูปเต็ม"><button id="vclose">ปิด</button></div>
+
+<div id="pinbox">
+  <form id="pinform">
+    <p>ใส่รหัสนักวาด</p>
+    <input id="pin" type="password" inputmode="numeric" autocomplete="off" aria-label="รหัส">
+    <div id="pinerr"></div>
+    <button id="pinok" type="submit">เข้าใช้งาน</button>
+  </form>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ====== ตั้งค่า ======
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbySwTMl1vVA4K1I3vwBLxq77ZdbiDXG-OcgKrE4jfoTSaZtq4neSUrISwYiRJUzyboV/exec'; // ลิงก์ Web App เดียวกับหน้าถ่ายรูป (ลงท้าย /exec)
+const REFRESH_MS = 8000;
+const PHOTO_CONCURRENCY = 3;
+
+const STATUS = {
+  'รอวาด':     { cls: 's-wait', next: ['กำลังวาด', 'เริ่มวาด', 'to-draw'], prev: null },
+  'กำลังวาด':  { cls: 's-draw', next: ['เสร็จแล้ว', 'วาดเสร็จ', 'to-done'], prev: 'รอวาด' },
+  'เสร็จแล้ว': { cls: 's-done', next: ['รับแล้ว', 'ลูกค้ารับแล้ว', 'to-pick'], prev: 'กำลังวาด' },
+  'รับแล้ว':   { cls: 's-pick', next: null, prev: 'เสร็จแล้ว' }
+};
+const TABS = ['รอวาด', 'กำลังวาด', 'เสร็จแล้ว', 'รับแล้ว', 'ทั้งหมด'];
+
+const $ = id => document.getElementById(id);
+let pin = localStorage.getItem('boothPin') || '';
+let rows = [];
+let filter = 'รอวาด';
+let search = '';
+let pendingWrites = 0;
+const cards = new Map();   // queue -> element
+const photos = new Map();  // queue -> data URL
+const loading = new Set();
+const waiting = [];
+let active = 0;
+
+// ====== เรียก Apps Script ======
+async function apiGet(params) {
+  const qs = new URLSearchParams({ ...params, pin });
+  const res = await fetch(APPS_SCRIPT_URL + '?' + qs.toString());
+  return res.json();
+}
+async function apiPost(body) {
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ ...body, pin })
+  });
+  return res.json();
+}
+
+// ====== รหัสนักวาด ======
+function askPin(msg) {
+  $('pinerr').textContent = msg || '';
+  $('pin').value = '';
+  $('pinbox').classList.add('on');
+  setTimeout(() => $('pin').focus(), 50);
+}
+$('pinform').addEventListener('submit', e => {
+  e.preventDefault();
+  pin = $('pin').value.trim();
+  if (!pin) return;
+  localStorage.setItem('boothPin', pin);
+  $('pinbox').classList.remove('on');
+  refresh();
+});
+
+// ====== ดึงรายการ ======
+async function refresh() {
+  if (!pin) return askPin();
+  if (pendingWrites > 0) return; // กำลังเปลี่ยนสถานะ อย่าเพิ่งทับ
+  try {
+    const d = await apiGet({ action: 'list' });
+    if (!d.ok) {
+      if (d.error === 'unauthorized') { localStorage.removeItem('boothPin'); pin = ''; return askPin('รหัสไม่ถูกต้อง'); }
+      throw new Error(d.error);
+    }
+    rows = d.rows;
+    setSync(true);
+    render();
+  } catch (e) {
+    setSync(false);
+  }
+}
+function setSync(ok) {
+  $('sdot').className = ok ? '' : 'bad';
+  $('stext').textContent = ok ? 'อัปเดตล่าสุด ' + new Date().toTimeString().slice(0, 5) : 'เชื่อมต่อไม่ได้ กำลังลองใหม่';
+}
+
+// ====== วาดหน้าจอ ======
+function render() {
+  rows.forEach(r => {
+    let el = cards.get(r.queue);
+    if (!el) { el = createCard(r); cards.set(r.queue, el); $('grid').appendChild(el); }
+    updateCard(el, r);
+  });
+  renderTabs();
+  applyFilter();
+}
+
+function createCard(r) {
+  const el = document.createElement('article');
+  el.className = 'card';
+  el.dataset.q = r.queue;
+  el.innerHTML =
+    '<div class="photo" role="button" aria-label="ดูรูปเต็ม">กำลังโหลดรูป...</div>' +
+    '<div class="meta"><div class="num"></div><div class="time"></div></div>' +
+    '<div class="pill"></div>' +
+    '<div class="actions"></div>';
+  el.querySelector('.num').textContent = r.queue;
+  el.querySelector('.photo').addEventListener('click', () => openViewer(r.queue));
+  return el;
+}
+
+function updateCard(el, r) {
+  const st = STATUS[r.status] || STATUS['รอวาด'];
+  el.dataset.status = r.status;
+  el.querySelector('.time').textContent = 'ถ่ายเมื่อ ' + r.time;
+  const pill = el.querySelector('.pill');
+  pill.textContent = r.status;
+  pill.className = 'pill ' + st.cls;
+
+  const actions = el.querySelector('.actions');
+  actions.innerHTML = '';
+  if (st.prev) {
+    const b = document.createElement('button');
+    b.className = 'back';
+    b.textContent = 'ย้อน';
+    b.addEventListener('click', () => setStatus(r.queue, st.prev));
+    actions.appendChild(b);
+  }
+  if (st.next) {
+    const n = document.createElement('button');
+    n.className = 'next ' + st.next[2];
+    n.textContent = st.next[1];
+    n.addEventListener('click', () => setStatus(r.queue, st.next[0]));
+    actions.appendChild(n);
+  }
+  // เรียงคิว: หมวดรอวาด/กำลังวาดเรียงจากเก่าไปใหม่ หมวดอื่นใหม่สุดก่อน
+  const n = Number(r.queue);
+  el.style.order = (r.status === 'รอวาด' || r.status === 'กำลังวาด') ? n : -n;
+}
+
+function renderTabs() {
+  const counts = {};
+  rows.forEach(r => { counts[r.status] = (counts[r.status] || 0) + 1; });
+  counts['ทั้งหมด'] = rows.length;
+  $('tabs').innerHTML = '';
+  TABS.forEach(t => {
+    const b = document.createElement('button');
+    b.className = 'tab';
+    b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', String(t === filter));
+    b.innerHTML = t + '<b>' + (counts[t] || 0) + '</b>';
+    b.addEventListener('click', () => { filter = t; renderTabs(); applyFilter(); });
+    $('tabs').appendChild(b);
+  });
+}
+
+function applyFilter() {
+  let shown = 0;
+  rows.forEach(r => {
+    const el = cards.get(r.queue);
+    const okStatus = filter === 'ทั้งหมด' || r.status === filter;
+    const okSearch = !search || r.queue.indexOf(search) !== -1;
+    const visible = okStatus && okSearch;
+    el.hidden = !visible;
+    if (visible) { shown++; loadPhoto(r.queue); }
+  });
+  $('empty').style.display = shown ? 'none' : 'block';
+}
+$('search').addEventListener('input', e => { search = e.target.value.trim(); applyFilter(); });
+
+// ====== เปลี่ยนสถานะ ======
+async function setStatus(queue, status) {
+  const r = rows.find(x => x.queue === queue);
+  if (!r) return;
+  const old = r.status;
+  r.status = status;
+  pendingWrites++;
+  render();
+  try {
+    const d = await apiPost({ action: 'setStatus', queue: queue, status: status });
+    if (!d.ok) throw new Error(d.error);
+  } catch (e) {
+    r.status = old;
+    render();
+    toast('เปลี่ยนสถานะคิว ' + queue + ' ไม่สำเร็จ กรุณากดอีกครั้ง');
+  } finally {
+    pendingWrites--;
+  }
+}
+
+// ====== โหลดรูป (ทีละไม่เกิน 3 รูป โหลดเฉพาะการ์ดที่มองเห็น) ======
+function loadPhoto(q) {
+  if (photos.has(q)) { setImg(q); return; }
+  if (loading.has(q)) return;
+  loading.add(q);
+  waiting.push(q);
+  drain();
+}
+function drain() {
+  while (active < PHOTO_CONCURRENCY && waiting.length) {
+    const q = waiting.shift();
+    active++;
+    fetchPhoto(q).finally(() => { active--; drain(); });
+  }
+}
+async function fetchPhoto(q) {
+  try {
+    const d = await apiGet({ action: 'photo', queue: q });
+    if (d.ok) { photos.set(q, 'data:image/jpeg;base64,' + d.image); setImg(q); }
+  } catch (e) { /* ลองใหม่รอบรีเฟรชถัดไป */ }
+  finally { loading.delete(q); }
+}
+function setImg(q) {
+  const el = cards.get(q);
+  if (!el) return;
+  const box = el.querySelector('.photo');
+  if (box.querySelector('img')) return;
+  box.textContent = '';
+  const img = document.createElement('img');
+  img.alt = 'รูปคิว ' + q;
+  img.src = photos.get(q);
+  box.appendChild(img);
+}
+
+// ====== ดูรูปเต็ม ======
+function openViewer(q) {
+  if (!photos.has(q)) return;
+  $('vnum').textContent = '#' + q;
+  $('vimg').src = photos.get(q);
+  $('viewer').classList.add('on');
+}
+$('vclose').addEventListener('click', () => $('viewer').classList.remove('on'));
+$('viewer').addEventListener('click', e => { if (e.target === $('viewer')) $('viewer').classList.remove('on'); });
+
+// ====== แจ้งเตือน ======
+let toastTimer = null;
+function toast(msg) {
+  $('toast').textContent = msg;
+  $('toast').classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => $('toast').classList.remove('on'), 4000);
+}
+
+// ====== เริ่มทำงาน ======
+if (APPS_SCRIPT_URL.startsWith('PUT_')) {
+  document.body.innerHTML = '<p style="padding:32px;font-size:20px;line-height:1.6">ยังไม่ได้ตั้งค่า APPS_SCRIPT_URL<br>เปิดไฟล์ queue.html แล้วใส่ลิงก์ Web App</p>';
+} else {
+  renderTabs();
+  refresh();
+  setInterval(() => { if (document.visibilityState === 'visible') refresh(); }, REFRESH_MS);
+}
+</script>
+</body>
+</html>
