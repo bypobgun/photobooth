@@ -53,6 +53,18 @@
   #flash.go { animation: flash .45s ease-out; }
   @keyframes flash { 0% { opacity: 1; } 100% { opacity: 0; } }
 
+  /* พรีวิว: ถ่ายใหม่ / ใช้รูปนี้ */
+  #preview { position: fixed; inset: 0; z-index: 8; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: calc(env(safe-area-inset-top, 0px) + 20px) 20px calc(env(safe-area-inset-bottom, 0px) + 20px); background: var(--ink); text-align: center; }
+  #preview.on { display: flex; }
+  #pvq { font-size: 26px; font-weight: 800; }
+  #pvimg { max-width: 100%; max-height: 58vh; object-fit: contain; border: 6px solid var(--paper); border-radius: 6px; background: #0F1A31; }
+  #pvauto { font-size: 18px; font-weight: 500; opacity: .8; font-variant-numeric: tabular-nums; }
+  #pvbtns { display: flex; gap: 14px; width: min(100%, 520px); }
+  #pvbtns button { flex: 1; padding: 20px 12px; border-radius: 12px; font: 800 22px var(--font); cursor: pointer; }
+  #pvbtns button:active { transform: scale(.97); }
+  #pvretake { background: transparent; color: var(--paper); border: 3px solid var(--paper); }
+  #pvuse { background: var(--paper); color: var(--ink); border: 3px solid var(--paper); }
+
   /* หน้าผลลัพธ์ + เลขคิว */
   #result { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 24px; background: var(--booth); text-align: center; }
   #result.on { display: flex; }
@@ -96,6 +108,16 @@
 <div id="count"><span id="countnum"></span></div>
 <div id="flash"></div>
 
+<div id="preview">
+  <div id="pvq">ชอบรูปนี้ไหม?</div>
+  <img id="pvimg" alt="รูปที่เพิ่งถ่าย">
+  <div id="pvauto"></div>
+  <div id="pvbtns">
+    <button id="pvretake" type="button">ถ่ายใหม่</button>
+    <button id="pvuse" type="button">ใช้รูปนี้</button>
+  </div>
+</div>
+
 <div id="result">
   <img id="shot" alt="รูปที่ถ่าย">
   <div id="rlabel">คิวของคุณ</div>
@@ -114,6 +136,8 @@ const MAX_SIDE = 2000;        // ย่อด้านยาวสุดเห�
 const JPEG_QUALITY = 0.88;
 const COUNTDOWN_FROM = 3;     // นับถอยหลังกี่วินาที (ตั้ง 0 = ไม่นับ)
 const RESULT_HOLD_MS = 5000;  // โชว์เลขคิวหลังได้เลขแล้วกี่ ms
+const MAX_RETAKES = 2;        // ถ่ายใหม่ได้กี่ครั้งต่อคน (ตั้ง 0 = ปิดการถ่ายใหม่)
+const PREVIEW_AUTO_SEC = 15;  // ไม่กดอะไร กี่วินาทีถึงใช้รูปนี้อัตโนมัติ
 const RESULT_MAX_WAIT_MS = 12000; // รอเลขนานสุดกี่ ms ก่อนกลับไปหน้ากล้อง (อัปโหลดต่อเบื้องหลัง)
 
 // ====== องค์ประกอบ ======
@@ -194,12 +218,63 @@ shutter.addEventListener('click', async () => {
   const dataUrl = capture();
   $('flash').classList.remove('go'); void $('flash').offsetWidth; $('flash').classList.add('go');
 
+  showPreview(dataUrl);
+});
+
+// ====== พรีวิว: ถ่ายใหม่ / ใช้รูปนี้ (ยังไม่ส่งและยังไม่ออกเลขคิวจนกว่าจะยืนยัน) ======
+let retakesLeft = MAX_RETAKES;
+let pendingShot = null;
+let autoTimer = null;
+
+function showPreview(dataUrl) {
+  pendingShot = dataUrl;
+  $('pvimg').src = dataUrl;
+  $('pvretake').hidden = retakesLeft <= 0;
+  $('pvretake').textContent = 'ถ่ายใหม่ (เหลือ ' + retakesLeft + ' ครั้ง)';
+  $('preview').classList.add('on');
+
+  let left = PREVIEW_AUTO_SEC;
+  const tick = () => {
+    $('pvauto').textContent = 'ใช้รูปนี้อัตโนมัติใน ' + left + ' วินาที';
+    if (left <= 0) { acceptShot(); return; }
+    left--;
+    autoTimer = setTimeout(tick, 1000);
+  };
+  clearTimeout(autoTimer);
+  tick();
+}
+
+function hidePreview() {
+  clearTimeout(autoTimer);
+  $('preview').classList.remove('on');
+}
+
+function retakeShot() {
+  if (retakesLeft <= 0) return;
+  retakesLeft--;
+  pendingShot = null;
+  hidePreview();
+  $('hint').style.visibility = 'visible';
+  shutter.disabled = false;
+  busy = false;
+}
+
+function acceptShot() {
+  if (!pendingShot) return;
+  const dataUrl = pendingShot;
+  pendingShot = null;
+  hidePreview();
+  retakesLeft = MAX_RETAKES; // รีเซ็ตสิทธิ์ถ่ายใหม่สำหรับลูกค้าคนต่อไป
+
   const job = { id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2)),
                 image: dataUrl.split(',')[1], tries: 0, queue: null };
   jobs.push(job);
   pump();
   showResult(job, dataUrl);
-});
+}
+
+$('pvretake').addEventListener('click', retakeShot);
+$('pvuse').addEventListener('click', acceptShot);
 
 function capture() {
   const w = cam.videoWidth, h = cam.videoHeight;
