@@ -1,0 +1,9 @@
+{
+  "name": "Photo Booth",
+  "short_name": "Booth",
+  "start_url": "./index.html",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#14213D",
+  "theme_color": "#14213D"
+}
