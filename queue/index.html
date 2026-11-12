@@ -48,6 +48,27 @@
   .back { padding: 0 14px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font: 500 15px var(--font); }
   .next:active, .back:active { transform: scale(.97); }
 
+  #who { padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--paper); font: 500 14px var(--font); white-space: nowrap; }
+  #who small { color: var(--muted); margin-left: 6px; }
+  .by { margin: 6px 14px 0; font-size: 14px; color: var(--muted); min-height: 1.2em; }
+
+  #closeday { padding: 8px 12px; border-radius: 999px; border: 1px solid var(--booth); background: transparent; color: var(--booth); font: 800 14px var(--font); white-space: nowrap; }
+  #daybox { position: fixed; inset: 0; z-index: 30; display: none; align-items: center; justify-content: center; padding: 24px; background: rgba(10,16,32,.92); }
+  #daybox.on { display: flex; }
+  #dayform { width: min(100%, 420px); display: flex; flex-direction: column; gap: 14px; padding: 22px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); }
+  #dayform h2 { font-size: 22px; font-weight: 800; }
+  #daysum { list-style: none; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; font-size: 16px; }
+  #daysum li { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding: 4px 0; }
+  #daysum b { font-variant-numeric: tabular-nums; }
+  #daywarn { color: var(--warn); font-weight: 800; font-size: 16px; }
+  #dayhelp { color: var(--muted); font-size: 15px; line-height: 1.5; }
+  #dayconfirm { padding: 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--ink); color: var(--paper); font: 800 20px var(--font); text-align: center; }
+  #daybtns { display: flex; gap: 10px; }
+  #daybtns button { flex: 1; padding: 14px; border-radius: 8px; border: 0; font: 800 18px var(--font); }
+  #daycancel { background: transparent; border: 1px solid var(--line) !important; color: var(--muted); }
+  #dayok { background: var(--booth); color: var(--paper); }
+  #dayok:disabled { opacity: .35; }
+
   #empty { display: none; padding: 60px 16px; text-align: center; color: var(--muted); font-size: 18px; }
 
   /* ดูรูปเต็ม */
@@ -77,6 +98,8 @@
     <h1>คิววาดรูป</h1>
     <input id="search" type="search" inputmode="numeric" placeholder="ค้นหาเลข" aria-label="ค้นหาเลขคิว">
     <div id="sync"><span id="sdot"></span><span id="stext">กำลังโหลด</span></div>
+    <button id="who" hidden></button>
+    <button id="closeday" hidden>ปิดวัน</button>
   </div>
   <div id="tabs" role="tablist"></div>
 </header>
@@ -97,6 +120,20 @@
   </form>
 </div>
 
+<div id="daybox">
+  <div id="dayform">
+    <h2>ปิดวัน / ล้างคิวทั้งหมด</h2>
+    <ul id="daysum"></ul>
+    <div id="daywarn"></div>
+    <p id="dayhelp">คิวทั้งหมดจะถูกเก็บไว้ในแท็บ Archive ของ Google Sheet (ไม่ถูกลบทิ้ง) แล้วเลขคิวจะเริ่มที่ 0001 ใหม่ รูปใน Drive ไม่ถูกแตะ<br>พิมพ์คำว่า <b>ปิดวัน</b> เพื่อยืนยัน</p>
+    <input id="dayconfirm" type="text" autocomplete="off" aria-label="พิมพ์ ปิดวัน เพื่อยืนยัน">
+    <div id="daybtns">
+      <button id="daycancel" type="button">ยกเลิก</button>
+      <button id="dayok" type="button" disabled>ปิดวันและล้างคิว</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -115,6 +152,8 @@ const TABS = ['รอวาด', 'กำลังวาด', 'เสร็จแ
 
 const $ = id => document.getElementById(id);
 let pin = localStorage.getItem('boothPin') || '';
+let me = '';
+let isAdmin = false;
 let rows = [];
 let filter = 'รอวาด';
 let search = '';
@@ -167,6 +206,9 @@ async function refresh() {
       throw new Error(d.error);
     }
     rows = d.rows;
+    me = d.me || '';
+    isAdmin = !!d.admin;
+    updateWho();
     setSync(true);
     render();
   } catch (e) {
@@ -180,9 +222,13 @@ function setSync(ok) {
 
 // ====== วาดหน้าจอ ======
 function render() {
+  // ลบการ์ดที่ไม่มีใน Sheet แล้ว (เช่น หลังปิดวัน) และการ์ดที่เลขคิวถูกใช้ซ้ำในวันใหม่
+  const live = new Set(rows.map(r => r.queue));
+  cards.forEach((el, q) => { if (!live.has(q)) { el.remove(); cards.delete(q); photos.delete(q); } });
   rows.forEach(r => {
     let el = cards.get(r.queue);
-    if (!el) { el = createCard(r); cards.set(r.queue, el); $('grid').appendChild(el); }
+    if (el && el.dataset.t && el.dataset.t !== r.time) { el.remove(); cards.delete(r.queue); photos.delete(r.queue); el = null; }
+    if (!el) { el = createCard(r); el.dataset.t = r.time; cards.set(r.queue, el); $('grid').appendChild(el); }
     updateCard(el, r);
   });
   renderTabs();
@@ -197,6 +243,7 @@ function createCard(r) {
     '<div class="photo" role="button" aria-label="ดูรูปเต็ม">กำลังโหลดรูป...</div>' +
     '<div class="meta"><div class="num"></div><div class="time"></div></div>' +
     '<div class="pill"></div>' +
+    '<div class="by"></div>' +
     '<div class="actions"></div>';
   el.querySelector('.num').textContent = r.queue;
   el.querySelector('.photo').addEventListener('click', () => openViewer(r.queue));
@@ -210,6 +257,9 @@ function updateCard(el, r) {
   const pill = el.querySelector('.pill');
   pill.textContent = r.status;
   pill.className = 'pill ' + st.cls;
+  let by = r.drawer ? 'วาดโดย ' + r.drawer : '';
+  if (r.status === 'รับแล้ว' && r.handoff) by += ' · ส่งมอบโดย ' + r.handoff;
+  el.querySelector('.by').textContent = by;
 
   const actions = el.querySelector('.actions');
   actions.innerHTML = '';
@@ -271,12 +321,22 @@ async function setStatus(queue, status) {
   pendingWrites++;
   render();
   try {
-    const d = await apiPost({ action: 'setStatus', queue: queue, status: status });
-    if (!d.ok) throw new Error(d.error);
+    const d = await apiPost({ action: 'setStatus', queue: queue, status: status, from: old });
+    if (!d.ok) { const err = new Error(d.error); err.data = d; throw err; }
+    setTimeout(refresh, 300); // ดึงชื่อผู้วาดล่าสุดจาก Sheet
   } catch (e) {
     r.status = old;
     render();
-    toast('เปลี่ยนสถานะคิว ' + queue + ' ไม่สำเร็จ กรุณากดอีกครั้ง');
+    const data = e.data || {};
+    if (data.error === 'conflict') {
+      toast('คิว ' + queue + ' ' + (data.by ? data.by + ' ' : '') + 'ดำเนินการไปแล้ว (สถานะตอนนี้: ' + data.status + ')');
+      setTimeout(refresh, 300);
+    } else if (data.error === 'unauthorized') {
+      localStorage.removeItem('boothPin'); pin = '';
+      askPin('รหัสไม่ถูกต้อง หรือถูกลบออกจากรายชื่อ');
+    } else {
+      toast('เปลี่ยนสถานะคิว ' + queue + ' ไม่สำเร็จ กรุณากดอีกครั้ง');
+    }
   } finally {
     pendingWrites--;
   }
@@ -328,12 +388,76 @@ $('viewer').addEventListener('click', e => { if (e.target === $('viewer')) $('vi
 
 // ====== แจ้งเตือน ======
 let toastTimer = null;
-function toast(msg) {
+function toast(msg, good) {
   $('toast').textContent = msg;
+  $('toast').style.background = good ? 'var(--ok)' : '';
+  $('toast').style.color = good ? 'var(--ink)' : '';
   $('toast').classList.add('on');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => $('toast').classList.remove('on'), 4000);
 }
+
+// ====== ชื่อผู้ใช้ + ออกจากระบบ ======
+function updateWho() {
+  const b = $('who');
+  $('closeday').hidden = !(me && isAdmin);
+  if (!me) { b.hidden = true; return; }
+  b.hidden = false;
+  b.innerHTML = '';
+  b.append(me);
+  const s = document.createElement('small');
+  s.textContent = 'ออก';
+  b.appendChild(s);
+}
+$('who').addEventListener('click', () => {
+  if (!confirm('ออกจากระบบของ ' + me + ' ?')) return;
+  localStorage.removeItem('boothPin');
+  pin = ''; me = ''; isAdmin = false; rows = [];
+  cards.forEach(el => el.remove());
+  cards.clear();
+  updateWho();
+  askPin('');
+});
+
+// ====== ปิดวัน / ล้างคิวทั้งหมด (เฉพาะผู้ดูแล) ======
+$('closeday').addEventListener('click', () => {
+  const c = { 'รอวาด': 0, 'กำลังวาด': 0, 'เสร็จแล้ว': 0, 'รับแล้ว': 0 };
+  rows.forEach(r => { c[r.status] = (c[r.status] || 0) + 1; });
+  const unfinished = c['รอวาด'] + c['กำลังวาด'] + c['เสร็จแล้ว'];
+  $('daysum').innerHTML = '';
+  [['ทั้งหมด', rows.length], ['รอวาด', c['รอวาด']], ['กำลังวาด', c['กำลังวาด']], ['เสร็จแล้ว (ยังไม่รับ)', c['เสร็จแล้ว']], ['รับแล้ว', c['รับแล้ว']]].forEach(x => {
+    const li = document.createElement('li');
+    const a = document.createElement('span'); a.textContent = x[0];
+    const b = document.createElement('b'); b.textContent = x[1];
+    li.append(a, b);
+    $('daysum').appendChild(li);
+  });
+  $('daywarn').textContent = unfinished > 0 ? 'ยังมีงานค้าง ' + unfinished + ' คิว (ยังไม่ได้ส่งมอบ) ตรวจให้แน่ใจก่อนปิดวัน' : '';
+  $('dayconfirm').value = '';
+  $('dayok').disabled = true;
+  $('daybox').classList.add('on');
+  setTimeout(() => $('dayconfirm').focus(), 50);
+});
+$('dayconfirm').addEventListener('input', e => { $('dayok').disabled = e.target.value.trim() !== 'ปิดวัน'; });
+$('daycancel').addEventListener('click', () => $('daybox').classList.remove('on'));
+$('dayok').addEventListener('click', async () => {
+  $('dayok').disabled = true;
+  pendingWrites++;
+  try {
+    const d = await apiPost({ action: 'closeDay', confirm: 'CLOSE_DAY' });
+    if (!d.ok) throw new Error(d.error);
+    $('daybox').classList.remove('on');
+    rows = [];
+    render();
+    toast('ปิดวันแล้ว เก็บ ' + d.archived + ' คิวไว้ใน Archive เลขคิวเริ่มที่ 0001 ใหม่', true);
+  } catch (e) {
+    toast(String(e.message) === 'forbidden' ? 'บัญชีนี้ไม่มีสิทธิ์ปิดวัน' : 'ปิดวันไม่สำเร็จ กรุณาลองอีกครั้ง');
+    $('dayok').disabled = false;
+  } finally {
+    pendingWrites--;
+    setTimeout(refresh, 500);
+  }
+});
 
 // ====== เริ่มทำงาน ======
 if (APPS_SCRIPT_URL.startsWith('PUT_')) {
