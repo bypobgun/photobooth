@@ -65,6 +65,22 @@
   #pvretake { background: transparent; color: var(--paper); border: 3px solid var(--paper); }
   #pvuse { background: var(--paper); color: var(--ink); border: 3px solid var(--paper); }
 
+  /* กรอกชื่อเล่น + เบอร์ (ข้ามได้) */
+  #contact { position: fixed; inset: 0; z-index: 9; display: none; flex-direction: column; align-items: center; justify-content: flex-start; gap: 14px; padding: calc(env(safe-area-inset-top, 0px) + 5vh) 20px 20px; background: var(--ink); text-align: center; overflow-y: auto; }
+  #contact.on { display: flex; }
+  #ctitle { font-size: 28px; font-weight: 800; }
+  #csub { font-size: 17px; font-weight: 500; opacity: .8; line-height: 1.5; max-width: 480px; }
+  #cthumb { height: 90px; border: 4px solid var(--paper); border-radius: 4px; object-fit: contain; background: #0F1A31; }
+  #contact input { width: min(100%, 480px); padding: 18px 16px; border-radius: 12px; border: 3px solid var(--paper); background: transparent; color: var(--paper); font: 800 24px var(--font); text-align: center; }
+  #contact input::placeholder { color: rgba(255,255,255,.55); font-weight: 500; }
+  #contact input:focus { outline: none; background: rgba(255,255,255,.08); }
+  #cerr { min-height: 1.4em; color: var(--warn); font-size: 17px; font-weight: 800; }
+  #cauto { font-size: 15px; opacity: .65; font-variant-numeric: tabular-nums; }
+  #cbtns { display: flex; gap: 14px; width: min(100%, 480px); }
+  #cbtns button { flex: 1; padding: 18px 12px; border-radius: 12px; font: 800 22px var(--font); cursor: pointer; }
+  #cskip { background: transparent; color: var(--paper); border: 3px solid var(--paper); }
+  #cok { background: var(--paper); color: var(--ink); border: 3px solid var(--paper); }
+
   /* หน้าผลลัพธ์ + เลขคิว */
   #result { position: fixed; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 24px; background: var(--booth); text-align: center; }
   #result.on { display: flex; }
@@ -118,6 +134,20 @@
   </div>
 </div>
 
+<div id="contact">
+  <div id="ctitle">ให้เราติดต่อคุณได้ไหม?</div>
+  <div id="csub">ใส่ชื่อเล่นและเบอร์โทร เพื่อให้เราติดต่อตอนรูปวาดเสร็จ (ใช้เพื่อการรับรูปวาดเท่านั้น) ไม่อยากใส่กด "ข้าม" ได้เลย</div>
+  <img id="cthumb" alt="รูปที่ถ่าย">
+  <input id="cnick" type="text" maxlength="30" autocomplete="off" placeholder="ชื่อเล่น" aria-label="ชื่อเล่น">
+  <input id="cphone" type="tel" inputmode="tel" maxlength="20" autocomplete="off" placeholder="เบอร์โทร" aria-label="เบอร์โทร">
+  <div id="cerr"></div>
+  <div id="cbtns">
+    <button id="cskip" type="button">ข้าม</button>
+    <button id="cok" type="button">ยืนยัน</button>
+  </div>
+  <div id="cauto"></div>
+</div>
+
 <div id="result">
   <img id="shot" alt="รูปที่ถ่าย">
   <div id="rlabel">คิวของคุณ</div>
@@ -137,6 +167,7 @@ const JPEG_QUALITY = 0.88;
 const COUNTDOWN_FROM = 3;     // นับถอยหลังกี่วินาที (ตั้ง 0 = ไม่นับ)
 const RESULT_HOLD_MS = 5000;  // โชว์เลขคิวหลังได้เลขแล้วกี่ ms
 const MAX_RETAKES = 2;        // ถ่ายใหม่ได้กี่ครั้งต่อคน (ตั้ง 0 = ปิดการถ่ายใหม่)
+const CONTACT_AUTO_SEC = 30;  // หน้ากรอกชื่อ/เบอร์: ไม่แตะอะไรกี่วินาทีถึงข้ามอัตโนมัติ (ตัวนับรีเซ็ตทุกครั้งที่พิมพ์)
 const PREVIEW_AUTO_SEC = 15;  // ไม่กดอะไร กี่วินาทีถึงใช้รูปนี้อัตโนมัติ
 const RESULT_MAX_WAIT_MS = 12000; // รอเลขนานสุดกี่ ms ก่อนกลับไปหน้ากล้อง (อัปโหลดต่อเบื้องหลัง)
 
@@ -264,14 +295,68 @@ function acceptShot() {
   const dataUrl = pendingShot;
   pendingShot = null;
   hidePreview();
-  retakesLeft = MAX_RETAKES; // รีเซ็ตสิทธิ์ถ่ายใหม่สำหรับลูกค้าคนต่อไป
+  showContact(dataUrl);
+}
 
+// ====== กรอกชื่อเล่น + เบอร์ (ข้ามได้) แล้วจึงส่งเข้าคิว ======
+let contactShot = null;
+let contactTimer = null;
+let contactLeft = 0;
+
+function showContact(dataUrl) {
+  contactShot = dataUrl;
+  $('cthumb').src = dataUrl;
+  $('cnick').value = '';
+  $('cphone').value = '';
+  $('cerr').textContent = '';
+  $('contact').classList.add('on');
+  resetContactTimer();
+}
+function resetContactTimer() {
+  clearTimeout(contactTimer);
+  contactLeft = CONTACT_AUTO_SEC;
+  const tick = () => {
+    $('cauto').textContent = 'ข้ามอัตโนมัติใน ' + contactLeft + ' วินาที';
+    if (contactLeft <= 0) { submitContact('auto'); return; }
+    contactLeft--;
+    contactTimer = setTimeout(tick, 1000);
+  };
+  tick();
+}
+function validPhone(v) {
+  const d = v.replace(/\D/g, '');
+  return d.length === 0 || (d.length >= 9 && d.length <= 15);
+}
+function submitContact(mode) {
+  if (!contactShot) return;
+  clearTimeout(contactTimer);
+  let nick = $('cnick').value.trim().slice(0, 30);
+  let phone = $('cphone').value.trim();
+  if (mode === 'skip') { nick = ''; phone = ''; }
+  else if (!validPhone(phone)) {
+    if (mode === 'auto') { phone = ''; }
+    else { $('cerr').textContent = 'เบอร์โทรไม่ถูกต้อง กรุณาตรวจสอบ หรือกด "ข้าม"'; resetContactTimer(); return; }
+  }
+  const dataUrl = contactShot;
+  contactShot = null;
+  $('contact').classList.remove('on');
+  $('cnick').blur(); $('cphone').blur();
+  retakesLeft = MAX_RETAKES; // รีเซ็ตสิทธิ์ถ่ายใหม่สำหรับลูกค้าคนต่อไป
+  createJob(dataUrl, nick, phone.replace(/[^0-9+]/g, ''));
+}
+function createJob(dataUrl, nick, phone) {
   const job = { id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2)),
-                image: dataUrl.split(',')[1], tries: 0, queue: null };
+                image: dataUrl.split(',')[1], nick: nick, phone: phone, tries: 0, queue: null };
   jobs.push(job);
   pump();
   showResult(job, dataUrl);
 }
+$('cskip').addEventListener('click', () => submitContact('skip'));
+$('cok').addEventListener('click', () => submitContact('ok'));
+['input', 'focus'].forEach(ev => {
+  $('cnick').addEventListener(ev, resetContactTimer);
+  $('cphone').addEventListener(ev, resetContactTimer);
+});
 
 $('pvretake').addEventListener('click', retakeShot);
 $('pvuse').addEventListener('click', acceptShot);
@@ -290,6 +375,7 @@ function capture() {
 function showResult(job, dataUrl) {
   currentJobId = job.id;
   $('shot').src = dataUrl;
+  $('rlabel').textContent = job.nick ? 'คิวของ ' + job.nick : 'คิวของคุณ';
   $('rnum').textContent = '…';
   $('rnote').textContent = 'กำลังจองคิว';
   $('result').classList.add('on');
@@ -323,7 +409,7 @@ async function pump() {
       const res = await fetch(APPS_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // text/plain เพื่อไม่ให้ติด CORS preflight
-        body: JSON.stringify({ clientId: job.id, image: job.image })
+        body: JSON.stringify({ clientId: job.id, image: job.image, nickname: job.nick || '', phone: job.phone || '' })
       });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'upload failed');
