@@ -25,7 +25,7 @@
   #sync { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
   #sdot { width: 9px; height: 9px; border-radius: 50%; background: var(--ok); }
   #sdot.bad { background: var(--booth); }
-  #search { width: 120px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--paper); font: 500 16px var(--font); }
+  #search { width: 150px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--paper); font: 500 16px var(--font); }
   #search::placeholder { color: var(--muted); }
   #tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
   .tab { flex: none; padding: 9px 14px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--muted); font: 500 16px var(--font); }
@@ -41,6 +41,10 @@
   .num { font-size: 44px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
   .time { color: var(--muted); font-size: 14px; }
   .pill { margin: 6px 14px 0; align-self: flex-start; padding: 3px 10px; border-radius: 999px; font-size: 14px; font-weight: 800; color: var(--ink); }
+  .s-cancel { background: var(--booth); color: var(--paper); }
+  .card[data-status="ยกเลิก"] .photo img { opacity: .4; }
+  .back.cancel { color: var(--booth); border-color: var(--booth); font-weight: 800; }
+  .info { margin: 2px 14px 0; font-size: 15px; font-weight: 500; min-height: 1.2em; }
   .s-wait { background: var(--warn); } .s-draw { background: var(--blue); } .s-done { background: var(--ok); } .s-pick { background: var(--gray); }
   .actions { display: flex; gap: 8px; padding: 10px 14px 14px; }
   .next { flex: 1; padding: 14px; border: 0; border-radius: 8px; font: 800 18px var(--font); color: var(--ink); }
@@ -96,7 +100,7 @@
 <header>
   <div class="top">
     <h1>คิววาดรูป</h1>
-    <input id="search" type="search" inputmode="numeric" placeholder="ค้นหาเลข" aria-label="ค้นหาเลขคิว">
+    <input id="search" type="search" placeholder="ค้นหาเลข/ชื่อ/เบอร์" aria-label="ค้นหาเลขคิว ชื่อเล่น หรือเบอร์">
     <div id="sync"><span id="sdot"></span><span id="stext">กำลังโหลด</span></div>
     <button id="who" hidden></button>
     <button id="closeday" hidden>ปิดวัน</button>
@@ -143,12 +147,13 @@ const REFRESH_MS = 8000;
 const PHOTO_CONCURRENCY = 3;
 
 const STATUS = {
-  'รอวาด':     { cls: 's-wait', next: ['กำลังวาด', 'เริ่มวาด', 'to-draw'], prev: null },
+  'รอวาด':     { cls: 's-wait', next: ['กำลังวาด', 'เริ่มวาด', 'to-draw'], prev: null, cancel: true },
   'กำลังวาด':  { cls: 's-draw', next: ['เสร็จแล้ว', 'วาดเสร็จ', 'to-done'], prev: 'รอวาด' },
   'เสร็จแล้ว': { cls: 's-done', next: ['รับแล้ว', 'ลูกค้ารับแล้ว', 'to-pick'], prev: 'กำลังวาด' },
-  'รับแล้ว':   { cls: 's-pick', next: null, prev: 'เสร็จแล้ว' }
+  'รับแล้ว':   { cls: 's-pick', next: null, prev: 'เสร็จแล้ว' },
+  'ยกเลิก':    { cls: 's-cancel', next: null, prev: 'รอวาด', prevLabel: 'นำกลับมา' }
 };
-const TABS = ['รอวาด', 'กำลังวาด', 'เสร็จแล้ว', 'รับแล้ว', 'ทั้งหมด'];
+const TABS = ['รอวาด', 'กำลังวาด', 'เสร็จแล้ว', 'รับแล้ว', 'ยกเลิก', 'ทั้งหมด'];
 
 const $ = id => document.getElementById(id);
 let pin = localStorage.getItem('boothPin') || '';
@@ -246,6 +251,7 @@ function createCard(r) {
     '<div class="meta"><div class="num"></div><div class="time"></div></div>' +
     '<div class="pill"></div>' +
     '<div class="by"></div>' +
+    '<div class="info"></div>' +
     '<div class="actions"></div>';
   el.querySelector('.num').textContent = r.queue;
   el.querySelector('.photo').addEventListener('click', () => openViewer(r.queue));
@@ -261,16 +267,27 @@ function updateCard(el, r) {
   pill.className = 'pill ' + st.cls;
   let by = r.drawer ? 'วาดโดย ' + r.drawer : '';
   if (r.status === 'รับแล้ว' && r.handoff) by += ' · ส่งมอบโดย ' + r.handoff;
+  if (r.status === 'ยกเลิก' && r.cancelledBy) by = 'ยกเลิกโดย ' + r.cancelledBy;
   el.querySelector('.by').textContent = by;
+  el.querySelector('.info').textContent = [r.nick, r.phone].filter(Boolean).join(' · ');
 
   const actions = el.querySelector('.actions');
   actions.innerHTML = '';
   if (st.prev) {
     const b = document.createElement('button');
     b.className = 'back';
-    b.textContent = 'ย้อน';
+    b.textContent = st.prevLabel || 'ย้อน';
     b.addEventListener('click', () => setStatus(r.queue, st.prev));
     actions.appendChild(b);
+  }
+  if (st.cancel) {
+    const c = document.createElement('button');
+    c.className = 'back cancel';
+    c.textContent = 'ยกเลิก';
+    c.addEventListener('click', () => {
+      if (confirm('ยกเลิกคิว ' + r.queue + ' ?\nเลขคิวนี้ยังอยู่ในระบบ (ไม่ลบ ไม่เลื่อนเลข) แต่จะไม่อยู่ในรายการรอวาด\nกู้คืนได้จากแท็บ "ยกเลิก"')) setStatus(r.queue, 'ยกเลิก');
+    });
+    actions.appendChild(c);
   }
   if (st.next) {
     const n = document.createElement('button');
@@ -305,7 +322,9 @@ function applyFilter() {
   rows.forEach(r => {
     const el = cards.get(r.queue);
     const okStatus = filter === 'ทั้งหมด' || r.status === filter;
-    const okSearch = !search || r.queue.indexOf(search) !== -1;
+    const sq = search.toLowerCase();
+    const okSearch = !search || r.queue.indexOf(search) !== -1 ||
+      (r.nick || '').toLowerCase().indexOf(sq) !== -1 || (r.phone || '').indexOf(search) !== -1;
     const visible = okStatus && okSearch;
     el.hidden = !visible;
     if (visible) { shown++; loadPhoto(r.queue); }
@@ -332,6 +351,9 @@ async function setStatus(queue, status) {
     const data = e.data || {};
     if (data.error === 'conflict') {
       toast('คิว ' + queue + ' ' + (data.by ? data.by + ' ' : '') + 'ดำเนินการไปแล้ว (สถานะตอนนี้: ' + data.status + ')');
+      setTimeout(refresh, 300);
+    } else if (data.error === 'cannot cancel' || data.error === 'cannot change cancelled') {
+      toast('คิว ' + queue + ' ' + (data.by ? data.by + ' ' : '') + 'รับไปวาดแล้ว หรือถูกเปลี่ยนสถานะไปแล้ว (ตอนนี้: ' + data.status + ')');
       setTimeout(refresh, 300);
     } else if (data.error === 'unauthorized') {
       localStorage.removeItem('boothPin'); pin = '';
@@ -423,11 +445,11 @@ $('who').addEventListener('click', () => {
 
 // ====== ปิดวัน / ล้างคิวทั้งหมด (เฉพาะผู้ดูแล) ======
 $('closeday').addEventListener('click', () => {
-  const c = { 'รอวาด': 0, 'กำลังวาด': 0, 'เสร็จแล้ว': 0, 'รับแล้ว': 0 };
+  const c = { 'รอวาด': 0, 'กำลังวาด': 0, 'เสร็จแล้ว': 0, 'รับแล้ว': 0, 'ยกเลิก': 0 };
   rows.forEach(r => { c[r.status] = (c[r.status] || 0) + 1; });
   const unfinished = c['รอวาด'] + c['กำลังวาด'] + c['เสร็จแล้ว'];
   $('daysum').innerHTML = '';
-  [['ทั้งหมด', rows.length], ['รอวาด', c['รอวาด']], ['กำลังวาด', c['กำลังวาด']], ['เสร็จแล้ว (ยังไม่รับ)', c['เสร็จแล้ว']], ['รับแล้ว', c['รับแล้ว']]].forEach(x => {
+  [['ทั้งหมด', rows.length], ['รอวาด', c['รอวาด']], ['กำลังวาด', c['กำลังวาด']], ['เสร็จแล้ว (ยังไม่รับ)', c['เสร็จแล้ว']], ['รับแล้ว', c['รับแล้ว']], ['ยกเลิก', c['ยกเลิก']]].forEach(x => {
     const li = document.createElement('li');
     const a = document.createElement('span'); a.textContent = x[0];
     const b = document.createElement('b'); b.textContent = x[1];
