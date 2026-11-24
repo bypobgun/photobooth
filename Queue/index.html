@@ -73,6 +73,13 @@
   #dayok { background: var(--booth); color: var(--paper); }
   #dayok:disabled { opacity: .35; }
 
+  #artists { display: flex; gap: 8px; overflow-x: auto; padding-top: 10px; }
+  #artists[hidden] { display: none; }
+  .achip { flex: none; padding: 7px 12px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--muted); font: 500 15px var(--font); }
+  .achip b { margin-left: 6px; font-weight: 800; }
+  .achip.zero { opacity: .55; }
+  .achip[aria-pressed="true"] { background: var(--blue); color: var(--ink); border-color: var(--blue); opacity: 1; font-weight: 800; }
+
   #empty { display: none; padding: 60px 16px; text-align: center; color: var(--muted); font-size: 18px; }
 
   /* ดูรูปเต็ม */
@@ -106,6 +113,7 @@
     <button id="closeday" hidden>ปิดวัน</button>
   </div>
   <div id="tabs" role="tablist"></div>
+  <div id="artists" hidden></div>
 </header>
 
 <main>
@@ -159,6 +167,8 @@ const $ = id => document.getElementById(id);
 let pin = localStorage.getItem('boothPin') || '';
 let me = '';
 let isAdmin = false;
+let staff = [];          // รายชื่อนักวาดจากแท็บ Staff
+let artistFilter = '';   // '' = ทุกคน
 let rows = [];
 let filter = 'รอวาด';
 let search = '';
@@ -213,6 +223,7 @@ async function refresh() {
     rows = d.rows;
     me = d.me || '';
     isAdmin = !!d.admin;
+    staff = d.staff || [];
     updateWho();
     setSync(true);
     render();
@@ -301,7 +312,36 @@ function updateCard(el, r) {
   el.style.order = (r.status === 'รอวาด' || r.status === 'กำลังวาด') ? n : -n;
 }
 
+const ARTIST_FILTER_TABS = ['กำลังวาด']; // แท็บที่แสดงตัวกรองตามนักวาด (เพิ่มแท็บอื่นได้ เช่น 'เสร็จแล้ว')
+
+function renderArtists() {
+  const box = $('artists');
+  if (ARTIST_FILTER_TABS.indexOf(filter) === -1) { box.hidden = true; return; }
+  const inTab = rows.filter(r => r.status === filter);
+  const counts = {};
+  inTab.forEach(r => { const d = r.drawer || ''; counts[d] = (counts[d] || 0) + 1; });
+  const names = staff.slice();
+  inTab.forEach(r => { if (r.drawer && names.indexOf(r.drawer) === -1) names.push(r.drawer); });
+  if (artistFilter && names.indexOf(artistFilter) === -1) artistFilter = '';
+  box.hidden = false;
+  box.innerHTML = '';
+  const add = (label, value, n) => {
+    const b = document.createElement('button');
+    b.className = 'achip' + (n === 0 ? ' zero' : '');
+    b.setAttribute('aria-pressed', String(artistFilter === value));
+    b.append(label);
+    const c = document.createElement('b');
+    c.textContent = n;
+    b.appendChild(c);
+    b.addEventListener('click', () => { artistFilter = (artistFilter === value) ? '' : value; renderArtists(); applyFilter(); });
+    box.appendChild(b);
+  };
+  add('ทุกคน', '', inTab.length);
+  names.forEach(n => add(n, n, counts[n] || 0));
+}
+
 function renderTabs() {
+  renderArtists();
   const counts = {};
   rows.forEach(r => { counts[r.status] = (counts[r.status] || 0) + 1; });
   counts['ทั้งหมด'] = rows.length;
@@ -319,13 +359,15 @@ function renderTabs() {
 
 function applyFilter() {
   let shown = 0;
+  const artistOn = artistFilter && ARTIST_FILTER_TABS.indexOf(filter) !== -1;
   rows.forEach(r => {
     const el = cards.get(r.queue);
     const okStatus = filter === 'ทั้งหมด' || r.status === filter;
     const sq = search.toLowerCase();
     const okSearch = !search || r.queue.indexOf(search) !== -1 ||
       (r.nick || '').toLowerCase().indexOf(sq) !== -1 || (r.phone || '').indexOf(search) !== -1;
-    const visible = okStatus && okSearch;
+    const okArtist = !artistOn || r.drawer === artistFilter;
+    const visible = okStatus && okSearch && okArtist;
     el.hidden = !visible;
     if (visible) { shown++; loadPhoto(r.queue); }
   });
