@@ -80,6 +80,26 @@
   .achip.zero { opacity: .55; }
   .achip[aria-pressed="true"] { background: var(--blue); color: var(--ink); border-color: var(--blue); opacity: 1; font-weight: 800; }
 
+  #addbtn { position: fixed; right: 16px; bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); z-index: 15; padding: 14px 20px; border: 0; border-radius: 999px; background: var(--paper); color: var(--ink); font: 800 18px var(--font); box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+  #addbtn[hidden] { display: none; }
+  #addbtn:active { transform: scale(.96); }
+  #addbox { position: fixed; inset: 0; z-index: 30; display: none; align-items: center; justify-content: center; padding: 24px; background: rgba(10,16,32,.92); overflow-y: auto; }
+  #addbox.on { display: flex; }
+  #addform { width: min(100%, 420px); display: flex; flex-direction: column; gap: 12px; padding: 22px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); }
+  #addform h2 { font-size: 22px; font-weight: 800; }
+  #addinfo { color: var(--muted); font-size: 16px; line-height: 1.5; }
+  #addthumb { max-height: 180px; object-fit: contain; border-radius: 6px; background: #0F1A31; }
+  #addcontact { display: flex; flex-direction: column; gap: 10px; }
+  #addcontact[hidden], #addthumb[hidden] { display: none; }
+  #addcontact input { padding: 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--ink); color: var(--paper); font: 500 18px var(--font); }
+  #addprog { min-height: 1.4em; font-weight: 800; font-size: 16px; }
+  #addprog.err { color: var(--warn); }
+  #addbtns { display: flex; gap: 10px; }
+  #addbtns button { flex: 1; padding: 14px; border-radius: 8px; border: 0; font: 800 18px var(--font); }
+  #addcancel { background: transparent; border: 1px solid var(--line) !important; color: var(--muted); }
+  #addok { background: var(--paper); color: var(--ink); }
+  #addbtns button:disabled { opacity: .4; }
+
   #empty { display: none; padding: 60px 16px; text-align: center; color: var(--muted); font-size: 18px; }
 
   /* ดูรูปเต็ม */
@@ -146,6 +166,25 @@
   </div>
 </div>
 
+<input id="addfile" type="file" accept="image/*" multiple hidden>
+<button id="addbtn" hidden>+ เพิ่มรูป</button>
+<div id="addbox">
+  <div id="addform">
+    <h2>เพิ่มรูปเข้าคิว</h2>
+    <div id="addinfo"></div>
+    <img id="addthumb" alt="รูปที่เลือก">
+    <div id="addcontact">
+      <input id="addnick" type="text" maxlength="30" autocomplete="off" placeholder="ชื่อเล่นลูกค้า (ไม่บังคับ)">
+      <input id="addphone" type="tel" inputmode="tel" maxlength="20" autocomplete="off" placeholder="เบอร์โทร (ไม่บังคับ)">
+    </div>
+    <div id="addprog"></div>
+    <div id="addbtns">
+      <button id="addcancel" type="button">ยกเลิก</button>
+      <button id="addok" type="button">เพิ่มเข้าคิว</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -164,6 +203,7 @@ const STATUS = {
 const TABS = ['รอวาด', 'กำลังวาด', 'เสร็จแล้ว', 'รับแล้ว', 'ยกเลิก', 'ทั้งหมด'];
 
 const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 let pin = localStorage.getItem('boothPin') || '';
 let me = '';
 let isAdmin = false;
@@ -467,6 +507,7 @@ function toast(msg, good) {
 function updateWho() {
   const b = $('who');
   $('closeday').hidden = !(me && isAdmin);
+  $('addbtn').hidden = !me;
   if (!me) { b.hidden = true; return; }
   b.hidden = false;
   b.innerHTML = '';
@@ -523,6 +564,120 @@ $('dayok').addEventListener('click', async () => {
     pendingWrites--;
     setTimeout(refresh, 500);
   }
+});
+
+// ====== ทีมงานอัปโหลดรูปจากเครื่องเข้าคิว ======
+const ADD_MAX_FILES = 20;   // เลือกได้สูงสุดกี่รูปต่อครั้ง
+const ADD_MAX_SIDE = 2000;  // ย่อด้านยาวสุดเหลือกี่ px (เท่ากับหน้ากล้อง)
+const ADD_QUALITY = 0.88;
+let addFiles = [];
+let addThumbUrl = '';
+
+$('addbtn').addEventListener('click', () => $('addfile').click());
+$('addfile').addEventListener('change', e => {
+  const picked = Array.from(e.target.files || []).filter(f => /^image\//.test(f.type) || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.name));
+  e.target.value = '';
+  if (!picked.length) return;
+  addFiles = picked.slice(0, ADD_MAX_FILES);
+  openAdd(picked.length > ADD_MAX_FILES);
+});
+
+function openAdd(truncated) {
+  const one = addFiles.length === 1;
+  $('addinfo').textContent = one
+    ? 'เลือก 1 รูป จะได้เลขคิวใหม่ต่อจากคิวล่าสุด'
+    : 'เลือก ' + addFiles.length + ' รูป แต่ละรูปจะได้เลขคิวของตัวเอง' + (truncated ? ' (เลือกได้สูงสุด ' + ADD_MAX_FILES + ' รูปต่อครั้ง)' : '');
+  $('addcontact').hidden = !one;
+  $('addnick').value = '';
+  $('addphone').value = '';
+  if (addThumbUrl) { URL.revokeObjectURL(addThumbUrl); addThumbUrl = ''; }
+  $('addthumb').hidden = !one;
+  if (one) { addThumbUrl = URL.createObjectURL(addFiles[0]); $('addthumb').src = addThumbUrl; }
+  $('addprog').textContent = '';
+  $('addprog').className = '';
+  $('addok').disabled = false;
+  $('addcancel').disabled = false;
+  $('addbox').classList.add('on');
+}
+function closeAdd() {
+  $('addbox').classList.remove('on');
+  if (addThumbUrl) { URL.revokeObjectURL(addThumbUrl); addThumbUrl = ''; }
+  addFiles = [];
+}
+$('addcancel').addEventListener('click', closeAdd);
+
+function loadImg(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('อ่านไฟล์รูปไม่ได้')); };
+    img.src = url;
+  });
+}
+async function fileToJpegBase64(file) {
+  let src;
+  try { src = await createImageBitmap(file, { imageOrientation: 'from-image' }); } // หมุนรูปตามที่ถ่ายมาให้ถูกด้าน
+  catch (e) { src = await loadImg(file); }
+  const w = src.naturalWidth || src.width, h = src.naturalHeight || src.height;
+  const scale = Math.min(1, ADD_MAX_SIDE / Math.max(w, h));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(w * scale);
+  canvas.height = Math.round(h * scale);
+  canvas.getContext('2d').drawImage(src, 0, 0, canvas.width, canvas.height);
+  if (src.close) src.close();
+  return canvas.toDataURL('image/jpeg', ADD_QUALITY).split(',')[1];
+}
+
+$('addok').addEventListener('click', async () => {
+  const one = addFiles.length === 1;
+  const nick = one ? $('addnick').value.trim().slice(0, 30) : '';
+  const phoneRaw = one ? $('addphone').value.trim() : '';
+  const digits = phoneRaw.replace(/\D/g, '');
+  if (digits.length && (digits.length < 9 || digits.length > 15)) {
+    $('addprog').className = 'err';
+    $('addprog').textContent = 'เบอร์โทรไม่ถูกต้อง ลองตรวจสอบหรือเว้นว่างไว้';
+    return;
+  }
+  const phone = phoneRaw.replace(/[^0-9+]/g, '');
+
+  $('addok').disabled = true;
+  $('addcancel').disabled = true;
+  $('addprog').className = '';
+  pendingWrites++;
+  const issued = [], failed = [];
+  let lostAuth = false;
+  try {
+    for (let i = 0; i < addFiles.length && !lostAuth; i++) {
+      $('addprog').textContent = 'กำลังอัปโหลด ' + (i + 1) + '/' + addFiles.length + ' ...';
+      const id = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2);
+      let queue = '';
+      try {
+        const image = await fileToJpegBase64(addFiles[i]);
+        for (let t = 0; t < 3 && !queue; t++) { // ลองซ้ำด้วย clientId เดิม เลขคิวจึงไม่ซ้ำ
+          try {
+            const d = await apiPost({ source: 'staff', clientId: id, image: image, nickname: nick, phone: phone });
+            if (d.ok) queue = d.queue;
+            else if (d.error === 'unauthorized') { lostAuth = true; break; }
+            else await sleep(1500 * (t + 1));
+          } catch (e) { await sleep(1500 * (t + 1)); }
+        }
+      } catch (e) { /* อ่าน/ย่อรูปไม่ได้ */ }
+      if (queue) issued.push('#' + queue); else if (!lostAuth) failed.push(addFiles[i].name);
+    }
+  } finally {
+    pendingWrites--;
+  }
+  closeAdd();
+  if (lostAuth) {
+    localStorage.removeItem('boothPin'); pin = '';
+    askPin('รหัสไม่ถูกต้อง หรือถูกลบออกจากรายชื่อ');
+  } else if (failed.length) {
+    toast('เพิ่มได้ ' + issued.length + ' รูป ส่งไม่สำเร็จ ' + failed.length + ' รูป: ' + failed.slice(0, 3).join(', '));
+  } else {
+    toast('เพิ่มเข้าคิวแล้ว: ' + issued.join(', '), true);
+  }
+  setTimeout(refresh, 300);
 });
 
 // ====== เริ่มทำงาน ======
